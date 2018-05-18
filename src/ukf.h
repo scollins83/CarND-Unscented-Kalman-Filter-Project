@@ -16,6 +16,9 @@ public:
   ///* initially set to false, set to true in first call of ProcessMeasurement
   bool is_initialized_;
 
+  ///* Previous timestamp
+  long long previous_timestamp_;
+
   ///* if this is false, laser measurements will be ignored (except for init)
   bool use_laser_;
 
@@ -29,6 +32,7 @@ public:
   MatrixXd P_;
 
   ///* predicted sigma points matrix
+  MatrixXd Xsig_;
   MatrixXd Xsig_pred_;
 
   ///* time when the state is true, in us
@@ -66,6 +70,18 @@ public:
 
   ///* Sigma point spreading parameter
   double lambda_;
+
+  ///* A matrix for storing square root of P
+  MatrixXd A_;
+
+  ///* Delta t(imestamps)
+  double delta_t_;
+
+  ///* Augmented mean state x
+  VectorXd x_aug_;
+
+  ///* Augmented mean state covariance P
+  MatrixXd P_aug_;
 
 
   /**

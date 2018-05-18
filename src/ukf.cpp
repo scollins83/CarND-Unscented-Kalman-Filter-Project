@@ -21,16 +21,12 @@ UKF::UKF() {
   // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
 
-  // initial state vector
-  x_ = VectorXd(5);
-
-  // initial covariance matrix
-  P_ = MatrixXd(5, 5);
-
   // Process noise standard deviation longitudinal acceleration in m/s^2
+    //TODO: Tweak this
   std_a_ = 5; // Definitely less than 9 for cars.
 
   // Process noise standard deviation yaw acceleration in rad/s^2
+    //TODO: Tweak this
   std_yawdd_ = M_PI; // 2pi is too high, so starting by splitting the difference between 2*pi and 0 by just going with pi.
   
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
@@ -54,6 +50,16 @@ UKF::UKF() {
   TODO:
   Complete the initialization. See ukf.h for other member properties.
   */
+  n_x_ = 5;
+
+  // initial state vector
+  x_ = VectorXd(n_x_);
+
+  // initial covariance matrix
+  P_ = MatrixXd(n_x_, n_x_);
+
+  n_aug_ = 7;
+  lambda_ = 3 - n_x_;
   P_.setIdentity(); // Initialize P as an identity matrix.
 
 }
@@ -73,25 +79,45 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   */
   if (!is_initialized_) {
     // First measurement
-    x_ << 0, 0, 0, 0.5015, 0.3528; // Start with zeros and noise vals from EKF
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+        // Initialize x_, P_, previous_time, and anything else needed.
       float rho = meas_package.raw_measurements_[0];
       float phi = meas_package.raw_measurements_[1];
       float rho_dot = meas_package.raw_measurements_[2];
 
       // Convert from polar to cartesian
-      x_(0) = rho * cos(phi);
-      x_(1) = rho * sin(phi);
-      x_(2) = rho_dot * cos(phi);
-      x_(3) = rho_dot * cos(phi);
+      float px = rho * cos(phi);
+      float py = rho * sin(phi);
+      float vx = rho_dot * cos(phi);
+      float vy = rho_dot * sin(phi);
+      float v = sqrt(vx * vx + vy * vy);
 
-      // TODO: LOOK UP MORE ABOUT 5 X VALUES VS 4!!!!
+      x_ << px, py, v, 0.5015, 0.3528; // Start with noise vals from EKF.
 
+    } else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
+      // Zeros for velocity
+      x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
     }
 
+    previous_timestamp_ = meas_package.timestamp_;
+    is_initialized_ = true;
+
+    return;
   }
 
+  /***********
+   * Run predict and update.
+   ************/
+  delta_t_ = (meas_package.timestamp_ - previous_timestamp_) / 1000000.0;
+  Prediction(delta_t_);
 
+  if (meas_package.sensor_type_ == MeasurementPackage::LASER){
+      UpdateLidar(meas_package);
+  }
+  else if (meas_package.sensor_type_ == MeasurementPackage::RADAR){
+      UpdateRadar(meas_package);
+  }
+  previous_timestamp_ = meas_package.timestamp_;
 
 }
 
@@ -107,6 +133,112 @@ void UKF::Prediction(double delta_t) {
   Complete this function! Estimate the object's location. Modify the state
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
+
+  // Create augmented mean state
+  x_aug_ = VectorXd(n_aug_);
+  x_aug_.head(5) = x_;
+  x_aug_(5) = 0;
+  x_aug_(6) = 0;
+
+  // Create augmented covariance matrix
+  MatrixXd P_aug_ = MatrixXd(7, 7);
+  P_aug_.fill(0.0);
+  P_aug_.topLeftCorner(5, 5) = P_;
+  P_aug_(5,5) = std_a_*std_a_;
+  P_aug_(6,6) = std_yawdd_*std_yawdd_;
+
+  // Create square root matrix
+  MatrixXd L = P_aug_.llt().matrixL();
+
+  // Create augmented sigma points
+  MatrixXd Xsig_aug_ = MatrixXd(n_aug_, 2 * n_aug_ + 1);
+  Xsig_aug_.col(0) = x_aug_;
+  for (int i = 0; i < n_aug_; i++) {
+      Xsig_aug_.col(i + 1) = x_aug_ + sqrt(lambda_ + n_aug_) * L.col(i);
+      Xsig_aug_.col(i + 1 + n_aug_) = x_aug_ - sqrt(lambda_ + n_aug_) * L.col(i);
+  }
+
+  /******
+   * Predict sigma points
+   ******/
+  for (int i = 0; i< 2*n_aug_+1; i++){
+    //extract values for better readability
+    double p_x = Xsig_aug_(0,i);
+    double p_y = Xsig_aug_(1,i);
+    double v = Xsig_aug_(2,i);
+    double yaw = Xsig_aug_(3,i);
+    double yawd = Xsig_aug_(4,i);
+    double nu_a = Xsig_aug_(5,i);
+    double nu_yawdd = Xsig_aug_(6,i);
+
+    //predicted state values
+    double px_p, py_p;
+
+    //avoid division by zero
+    if (fabs(yawd) > 0.001) {
+        px_p = p_x + v/yawd * ( sin (yaw + yawd*delta_t) - sin(yaw));
+        py_p = p_y + v/yawd * ( cos(yaw) - cos(yaw+yawd*delta_t) );
+    }
+    else {
+        px_p = p_x + v*delta_t*cos(yaw);
+        py_p = p_y + v*delta_t*sin(yaw);
+    }
+
+    double v_p = v;
+    double yaw_p = yaw + yawd*delta_t;
+    double yawd_p = yawd;
+
+    //add noise
+    px_p = px_p + 0.5*nu_a*delta_t*delta_t * cos(yaw);
+    py_p = py_p + 0.5*nu_a*delta_t*delta_t * sin(yaw);
+    v_p = v_p + nu_a*delta_t;
+
+    yaw_p = yaw_p + 0.5*nu_yawdd*delta_t*delta_t;
+    yawd_p = yawd_p + nu_yawdd*delta_t;
+
+    //write predicted sigma point into right column
+    MatrixXd Xsig_pred_ = MatrixXd(n_x_, 2 * n_aug_ + 1);
+    Xsig_pred_(0,i) = px_p;
+    Xsig_pred_(1,i) = py_p;
+    Xsig_pred_(2,i) = v_p;
+    Xsig_pred_(3,i) = yaw_p;
+    Xsig_pred_(4,i) = yawd_p;
+    }
+
+
+    /*****
+     * Predict Mean and Covariance
+     *****/
+    // set weights
+    double weight_0 = lambda_/(lambda_+n_aug_);
+
+    weights_(0) = weight_0;
+
+    for (int i=1; i<2*n_aug_+1; i++) {  //2n+1 weights
+        double weight = 0.5/(n_aug_+lambda_);
+        weights_(i) = weight;
+    }
+
+    //predicted state mean
+    x_.fill(0.0);
+    for (int i = 0; i < 2 * n_aug_ + 1; i++) {  //iterate over sigma points
+        x_ = x_ + weights_(i) * Xsig_pred_.col(i);
+    }
+
+    //predicted state covariance matrix
+    P_.fill(0.0);
+    for (int i = 0; i < 2 * n_aug_ + 1; i++) {  //iterate over sigma points
+
+        // state difference
+        VectorXd x_diff = Xsig_pred_.col(i) - x_;
+        //angle normalization
+        while (x_diff(3)> M_PI) x_diff(3)-=2.*M_PI;
+        while (x_diff(3)<-M_PI) x_diff(3)+=2.*M_PI;
+
+        P_ = P_ + weights_(i) * x_diff * x_diff.transpose() ;
+    }
+
+
 }
 
 /**
