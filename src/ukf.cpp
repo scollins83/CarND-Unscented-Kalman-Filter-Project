@@ -48,16 +48,15 @@ UKF::UKF() {
   //DO NOT MODIFY measurement noise values above these are provided by the sensor manufacturer.
   
   /**
-  TODO:
-  Complete the initialization. See ukf.h for other member properties.
+  Initialize
   */
   n_x_ = 5;
 
   // initial state vector
-  x_ = VectorXd(n_x_);
+  x_ = Eigen::VectorXd(n_x_);
 
   // initial covariance matrix
-  P_ = MatrixXd(n_x_, n_x_);
+  P_ = Eigen::MatrixXd(n_x_, n_x_);
 
   n_aug_ = 7;
   lambda_ = 3 - n_x_;
@@ -73,8 +72,6 @@ UKF::~UKF() {}
  */
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   /**
-  TODO:
-
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
@@ -129,20 +126,18 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
  */
 void UKF::Prediction(double delta_t) {
   /**
-  TODO:
-
-  Complete this function! Estimate the object's location. Modify the state
-  vector, x_. Predict sigma points, the state, and the state covariance matrix.
+   * Estimate the object's location. Modify the state
+   * vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
 
   // Create augmented mean state
-  x_aug_ = VectorXd(n_aug_);
+  x_aug_ = Eigen::VectorXd(n_aug_);
   x_aug_.head(5) = x_;
   x_aug_(5) = 0;
   x_aug_(6) = 0;
 
   // Create augmented covariance matrix
-  P_aug_ = MatrixXd(7, 7);
+  P_aug_ = Eigen::MatrixXd(7, 7);
   P_aug_.fill(0.0);
   P_aug_.topLeftCorner(5, 5) = P_;
   P_aug_(5,5) = std_a_*std_a_;
@@ -152,7 +147,7 @@ void UKF::Prediction(double delta_t) {
   MatrixXd L = P_aug_.llt().matrixL();
 
   // Create augmented sigma points
-  MatrixXd Xsig_aug_ = MatrixXd(n_aug_, 2 * n_aug_ + 1);
+  MatrixXd Xsig_aug_ = Eigen::MatrixXd(n_aug_, 2 * n_aug_ + 1);
   Xsig_aug_.col(0) = x_aug_;
   for (int i = 0; i < n_aug_; i++) {
       Xsig_aug_.col(i + 1) = x_aug_ + sqrt(lambda_ + n_aug_) * L.col(i);
@@ -198,7 +193,7 @@ void UKF::Prediction(double delta_t) {
     yawd_p = yawd_p + nu_yawdd*delta_t;
 
     //write predicted sigma point into right column
-    Xsig_pred_ = MatrixXd(n_x_, 2 * n_aug_ + 1);
+    Xsig_pred_ = Eigen::MatrixXd(n_x_, 2 * n_aug_ + 1);
     Xsig_pred_(0,i) = px_p;
     Xsig_pred_(1,i) = py_p;
     Xsig_pred_(2,i) = v_p;
@@ -211,7 +206,7 @@ void UKF::Prediction(double delta_t) {
      * Predict Mean and Covariance
      *****/
     // set weights
-    weights_ = VectorXd(2*n_aug_+1);
+    weights_ = Eigen::VectorXd(2*n_aug_+1);
     double weight_0 = lambda_/(lambda_+n_aug_);
 
     weights_(0) = weight_0;
@@ -232,12 +227,12 @@ void UKF::Prediction(double delta_t) {
     for (int i = 0; i < 2 * n_aug_ + 1; i++) {  //iterate over sigma points
 
         // state difference
-        VectorXd x_diff = Xsig_pred_.col(i) - x_;
+        VectorXd x_diff_ = Xsig_pred_.col(i) - x_;
         //angle normalization
-        while (x_diff(3)> M_PI) x_diff(3)-=2.*M_PI;
-        while (x_diff(3)<-M_PI) x_diff(3)+=2.*M_PI;
+        while (x_diff_(3)> M_PI) x_diff_(3)-=2.*M_PI;
+        while (x_diff_(3)<-M_PI) x_diff_(3)+=2.*M_PI;
 
-        P_ = P_ + weights_(i) * x_diff * x_diff.transpose() ;
+        P_ = P_ + weights_(i) * x_diff_ * x_diff_.transpose() ;
     }
 
 
@@ -249,8 +244,6 @@ void UKF::Prediction(double delta_t) {
  */
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
   /**
-  TODO:
-
   Complete this function! Use lidar data to update the belief about the object's
   position. Modify the state vector, x_, and covariance, P_.
 
@@ -258,8 +251,27 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
    Mapping from your state vector to observation space in lidar is linear, like EKF.
    No reason to use any non-linear techniques, can use regular Kalman Filter equations at beginning of EKF lessons.
-  */
 
+   H matrix will look a bit different than lessons; has only 4 components in UKF due to CTRV model.
+
+  */
+  H_ = Eigen::MatrixXd(2, 5);
+  H_ << 1, 0, 0, 0, 0,
+        0, 1, 0, 0, 0;
+
+  z_pred_ = H_ * x_;
+  VectorXd y_ = z_ - z_pred_;
+  MatrixXd Ht_ = H_.transpose();
+  S_ = H_ * P_ * Ht_ + R_;
+  MatrixXd Si_ = S_.inverse();
+  MatrixXd PHt_ = P_ * Ht_;
+  MatrixXd K_ = PHt_ * Si_;
+
+  // Make the new estimate
+  x_ = x_ + (K_ * y_);
+  long x_size_ = x_.size();
+  MatrixXd I_ = MatrixXd::Identity(x_size_, x_size_);
+  P_ = (I_ - K_ * H_) * P_;
 }
 
 /**
@@ -268,8 +280,6 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
  */
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
   /**
-  TODO:
-
   Complete this function! Use radar data to update the belief about the object's
   position. Modify the state vector, x_, and covariance, P_.
 
