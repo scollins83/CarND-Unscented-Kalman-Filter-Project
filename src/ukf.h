@@ -83,6 +83,34 @@ public:
   ///* Augmented mean state covariance P
   MatrixXd P_aug_;
 
+  ///* Radar measurement dimension
+  int n_z_;
+
+  ///* Matrix for sigma points in measurement space
+  MatrixXd Zsig_;
+
+  ///* Mean predicted measurement
+  VectorXd z_pred_;
+
+  ///* Measurement noise covariance matrix
+  MatrixXd R_;
+
+  ///* Innovation covariance matrix
+  MatrixXd S_;
+
+  ///* Vector for incoming radar measurement, for prediction
+  VectorXd z_;
+
+  ///* Matrix for cross correlation Tc, in radar update step.
+  MatrixXd Tc_;
+
+  ///* Residuals for updating radar
+  VectorXd z_diff_;
+  VectorXd x_diff_;
+
+  ///* Kalman Gain Matrix
+  MatrixXd K_;
+
 
   /**
    * Constructor
