@@ -20,7 +20,7 @@ UKF::UKF() {
   // TODO: Check to see that the conditional statements for using laser and radar are functioning correctly. Got an error when I set this to false.
 
   // if this is false, radar measurements will be ignored (except during init)
-  use_radar_ = true;
+  use_radar_ = false;
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
     //TODO: Tweak this
@@ -53,14 +53,14 @@ UKF::UKF() {
   n_x_ = 5;
 
   // initial state vector
-  x_ = Eigen::VectorXd(n_x_);
+  x_ = Eigen::VectorXd(5);
 
   // initial covariance matrix
-  P_ = Eigen::MatrixXd(n_x_, n_x_);
+  P_ = Eigen::MatrixXd(5, 5);
 
   n_aug_ = 7;
   lambda_ = 3 - n_x_;
-  P_.setIdentity(); // Initialize P as an identity matrix.
+  P_ = MatrixXd::Identity(5, 5); // Initialize P as an identity matrix.
 
   // NIS variables
   NIS_laser_ = 0.0;
@@ -84,21 +84,29 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
         // Initialize x_, P_, previous_time, and anything else needed.
       float rho = meas_package.raw_measurements_[0];
       float phi = meas_package.raw_measurements_[1];
-      float rho_dot = meas_package.raw_measurements_[2];
+      //float rho_dot = meas_package.raw_measurements_[2];
 
       // Convert from polar to cartesian
       float px = rho * cos(phi);
       float py = rho * sin(phi);
-      float vx = rho_dot * cos(phi);
-      float vy = rho_dot * sin(phi);
-      float v = sqrt(vx * vx + vy * vy);
+      //float vx = rho_dot * cos(phi);
+      //float vy = rho_dot * sin(phi);
+      //float v = sqrt(vx * vx + vy * vy);
 
-      x_ << px, py, v, 0.5015, 0.3528; // Start with noise vals from EKF.
+      x_ << px, py, 0, 0, 0; // Start with noise vals from EKF.
+      //x_.fill(0.0);
+      //x_(0) = px;
+      //x_(1) = py;
+      //x_(2) = v;
+      //x_(3) = vx;
+      //x_(4) = vy;
 
     } else if ((meas_package.sensor_type_ == MeasurementPackage::LASER) && use_laser_) {
       // Zeros for velocity
+      //x_.fill(0.0);
       x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
     }
+    cout << "x_init: " << endl << x_ << endl;
 
     previous_timestamp_ = meas_package.timestamp_;
     is_initialized_ = true;
@@ -118,7 +126,9 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   else if ((meas_package.sensor_type_ == MeasurementPackage::RADAR) && use_radar_){
       UpdateRadar(meas_package);
   }
+  cout << "x: " << endl << x_ << endl;
   previous_timestamp_ = meas_package.timestamp_;
+  time_us_ = meas_package.timestamp_;
 
 }
 
@@ -127,6 +137,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
  * @param {double} delta_t the change in time (in seconds) between the last
  * measurement and this one.
  */
+
 void UKF::Prediction(double delta_t) {
   /**
    * Estimate the object's location. Modify the state
